@@ -2,7 +2,7 @@
 <p align="center"><strong>Y</strong>et <strong>A</strong>nother <strong>D</strong>ocker <strong>W</strong>ebhook</p>
 
 
-<img src="https://user-images.githubusercontent.com/71837281/148122013-aa3b92fd-d8b4-43eb-918a-b786a54f94b1.mov" align="center" />
+https://user-images.githubusercontent.com/71837281/148122013-aa3b92fd-d8b4-43eb-918a-b786a54f94b1.mov
 
 
 
