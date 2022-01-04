@@ -8,8 +8,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/client"
 	"github.com/gofiber/fiber/v2"
+	"github.com/moby/moby/client"
 	"io"
 	"os"
 	"os/signal"
@@ -71,6 +71,8 @@ func main() {
 		log.WithError(err).Error("Cannot connect to Docker")
 		return
 	}
+	log.Debug("Negotiating API version for Docker client")
+	dc.NegotiateAPIVersion(context.Background())
 	// Test if we can access the docker daemon
 	if _, err = dc.Info(context.Background()); err != nil {
 		log.WithError(err).Fatal("Connection to docker socket failed")

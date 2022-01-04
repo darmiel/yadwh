@@ -19,7 +19,7 @@ COPY . .
 RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o yadwh .
 
 FROM alpine:3.15
-COPY --from=builder /usr/src/app/backend .
+COPY --from=builder /usr/src/app/yadwh .
 
 EXPOSE 80
 
