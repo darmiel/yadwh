@@ -146,6 +146,13 @@ func pullImage(c *types.Container) (err error) {
 	if reader, err = dc.ImagePull(context.Background(), c.Image, types.ImagePullOptions{}); err != nil {
 		log.WithError(err).Warn("Cannot pull image")
 	}
+	var data []byte
+	if data, err = io.ReadAll(reader); err != nil {
+		log.WithError(err).Warn("Cannot read body for pull")
+	} else {
+		log.Info("Pull Result:")
+		log.Info(string(data))
+	}
 	return
 }
 
@@ -224,7 +231,7 @@ func process(name, secret string, ctx *fiber.Ctx) (err error) {
 			containerName = cont.Names[0]
 		}
 
-		log.Info("Re-creating container")
+		log.Infof("Re-creating container with image %s", inspect.Config.Image)
 		var created container.ContainerCreateCreatedBody
 		if created, err = dc.ContainerCreate(context.Background(),
 			inspect.Config,
