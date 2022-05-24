@@ -55,11 +55,12 @@ Once the webhook is called, all containers with the label `io.d2a.yadwh.ug` set 
 ## Auth
 
 If your container is private or behind a docker registry auth, 
-set the environment variable `WH_AUTH_<NAME>` to `username:password` encoded as base64.
+set the environment variable `WH_AUTH_<NAME>` to your credentials encoded as base64.
 
 You can get the base64 encoded string by running this command:
+
 ```bash
-$ echo -n "username:password" | base64
+$ echo -n '{"username": "<username>", "password": "<password>"}' | base64
 ```
 
 ---
