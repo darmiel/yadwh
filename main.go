@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	EnvKeyPrefix = "WH_SECRET_"
-	LabelKey     = "io.d2a.yadwh.ug"
+	EnvKeyPrefix  = "WH_SECRET_"
+	EnvAuthPrefix = "WH_AUTH_"
+	LabelKey      = "io.d2a.yadwh.ug"
 )
 
 var (
@@ -28,9 +29,14 @@ var (
 	ErrWebhookNotFound = fiber.NewError(404, "webhook not found")
 )
 
+type attributes struct {
+	secret string
+	auth   string // base64 encoded auth string
+}
+
 var (
-	secrets = make(map[string]string)
-	dc      *client.Client
+	attrs = make(map[string]*attributes)
+	dc    *client.Client
 )
 
 func init() {
@@ -50,15 +56,25 @@ func main() {
 			log.Warnf("Empty secret name: %s", env)
 			continue
 		}
-		value := strings.TrimSpace(os.Getenv(key))
-		if len(value) < 12 {
+
+		// find secret in env
+		sec := strings.TrimSpace(os.Getenv(key))
+		if len(sec) < 12 {
 			log.WithField("webhook", name).Warn("Secrets are required to be at least 12 chars long")
 			continue
 		}
-		log.Infof("Found secret for %s = %s", name, strings.Repeat("*", len(value)))
-		secrets[name] = value
+		log.Infof("Found secret for %s = %s", name, strings.Repeat("*", len(sec)))
+
+		// find auth in env
+		auth := strings.TrimSpace(os.Getenv(EnvAuthPrefix + name))
+		log.Infof("auth secret for %s = %s", name, strings.Repeat("*", len(auth)))
+
+		attrs[name] = &attributes{
+			secret: sec,
+			auth:   auth,
+		}
 	}
-	if len(secrets) == 0 {
+	if len(attrs) == 0 {
 		log.Error("No secrets found.")
 		log.Fatalf("Specify them by setting the environment variable to %s<key>=<secret>", EnvKeyPrefix)
 		return
@@ -135,7 +151,7 @@ func trimID(id string) string {
 	return id
 }
 
-func pullImage(c *types.Container) (err error) {
+func (a *attributes) pullImage(c *types.Container) (err error) {
 	log.Infof("Pulling image for container %s@%s", trimID(c.ID), c.Image)
 	var reader io.ReadCloser
 	defer func() {
@@ -143,7 +159,9 @@ func pullImage(c *types.Container) (err error) {
 			log.WithError(err).Warn("Cannot close reader")
 		}
 	}()
-	if reader, err = dc.ImagePull(context.Background(), c.Image, types.ImagePullOptions{}); err != nil {
+	if reader, err = dc.ImagePull(context.Background(), c.Image, types.ImagePullOptions{
+		RegistryAuth: a.auth,
+	}); err != nil {
 		log.WithError(err).Warn("Cannot pull image")
 	}
 	var data []byte
@@ -161,11 +179,11 @@ func process(name, secret string, ctx *fiber.Ctx) (err error) {
 	secret = strings.TrimSpace(secret)
 
 	// Check if secret is valid
-	expected, ok := secrets[name]
-	if !ok {
+	expected, ok := attrs[name]
+	if !ok || expected == nil {
 		return ErrWebhookNotFound
 	}
-	if secret != expected {
+	if secret != expected.secret {
 		return ErrSecretInvalid
 	}
 
@@ -196,7 +214,7 @@ func process(name, secret string, ctx *fiber.Ctx) (err error) {
 			continue
 		}
 
-		if err = pullImage(&cont); err != nil {
+		if err = expected.pullImage(&cont); err != nil {
 			continue
 		}
 
