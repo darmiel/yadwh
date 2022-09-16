@@ -6,7 +6,7 @@ require (
 	github.com/apex/log v1.9.0
 	github.com/docker/docker v20.10.14+incompatible
 	github.com/gofiber/fiber/v2 v2.32.0
-	github.com/moby/moby v20.10.14+incompatible
+	github.com/moby/moby v20.10.18+incompatible
 )
 
 require (
