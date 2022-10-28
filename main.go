@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/apex/log"
 	"github.com/apex/log/handlers/cli"
 	"github.com/docker/docker/api/types"
@@ -18,20 +19,25 @@ import (
 	"time"
 )
 
+// environment variable prefixes
 const (
-	EnvKeyPrefix  = "WH_SECRET_"
-	EnvAuthPrefix = "WH_AUTH_"
-	LabelKey      = "io.d2a.yadwh.ug"
+	EnvSecretPrefix = "WH_SECRET_"
+	EnvAuthPrefix   = "WH_AUTH_"
+	EnvRemovePrefix = "WH_REMOVE_"
+	LabelKey        = "io.d2a.yadwh.ug"
 )
 
+// fiber errors
 var (
 	ErrSecretInvalid   = fiber.NewError(401, "secret mismatch")
 	ErrWebhookNotFound = fiber.NewError(404, "webhook not found")
 )
 
+// attributes contains label specific settings
 type attributes struct {
-	secret string
-	auth   string // base64 encoded auth string
+	secret    string
+	auth      string // base64 encoded auth string
+	removeOld bool   // remove old image after pulling new
 }
 
 var (
@@ -47,11 +53,11 @@ func init() {
 func main() {
 	// Load secrets from env
 	for _, env := range os.Environ() {
-		if !strings.HasPrefix(env, EnvKeyPrefix) {
+		if !strings.HasPrefix(env, EnvSecretPrefix) {
 			continue
 		}
 		key := env[:strings.Index(env, "=")]
-		name := key[len(EnvKeyPrefix):]
+		name := key[len(EnvSecretPrefix):]
 		if len(name) == 0 {
 			log.Warnf("Empty secret name: %s", env)
 			continue
@@ -69,14 +75,22 @@ func main() {
 		auth := strings.TrimSpace(os.Getenv(EnvAuthPrefix + name))
 		log.Infof("auth secret for %s = %s", name, strings.Repeat("*", len(auth)))
 
+		// find remove old images
+		removeOld := strings.TrimSpace(os.Getenv(EnvRemovePrefix+name)) == "true"
+		if removeOld { // display warning if purge mode is enabled
+			log.Warnf("Purge-Mode was enabled for %s:", name)
+			log.Warn("Old images will be deleted after downloading new images.")
+		}
+
 		attrs[name] = &attributes{
-			secret: sec,
-			auth:   auth,
+			secret:    sec,
+			auth:      auth,
+			removeOld: removeOld,
 		}
 	}
 	if len(attrs) == 0 {
 		log.Error("No secrets found.")
-		log.Fatalf("Specify them by setting the environment variable to %s<key>=<secret>", EnvKeyPrefix)
+		log.Fatalf("Specify them by setting the environment variable to %s<key>=<secret>", EnvSecretPrefix)
 		return
 	}
 
@@ -151,7 +165,7 @@ func trimID(id string) string {
 	return id
 }
 
-func (a *attributes) pullImage(c *types.Container) (err error) {
+func (a *attributes) pullImage(c *types.Container) (body []byte, err error) {
 	log.Infof("Pulling image for container %s@%s", trimID(c.ID), c.Image)
 	var reader io.ReadCloser
 	defer func() {
@@ -164,13 +178,12 @@ func (a *attributes) pullImage(c *types.Container) (err error) {
 	}); err != nil {
 		log.WithError(err).Warn("Cannot pull image")
 	}
-	var data []byte
-	if data, err = io.ReadAll(reader); err != nil {
-		log.WithError(err).Warn("Cannot read body for pull")
-	} else {
-		log.Info("Pull Result:")
-		log.Info(string(data))
-	}
+	body, err = io.ReadAll(reader)
+	return
+}
+
+func deleteImage(imageID string) (err error) {
+	_, err = dc.ImageRemove(context.Background(), imageID, types.ImageRemoveOptions{})
 	return
 }
 
@@ -214,9 +227,13 @@ func process(name, secret string, ctx *fiber.Ctx) (err error) {
 			continue
 		}
 
-		if err = expected.pullImage(&cont); err != nil {
+		var body []byte
+		if body, err = expected.pullImage(&cont); err != nil {
 			continue
 		}
+		fmt.Println()
+		fmt.Println(string(body))
+		fmt.Println()
 
 		var inspect types.ContainerJSON
 		if inspect, err = dc.ContainerInspect(context.Background(), cont.ID); err != nil {
@@ -268,6 +285,19 @@ func process(name, secret string, ctx *fiber.Ctx) (err error) {
 		if err = dc.ContainerStart(context.Background(), created.ID, types.ContainerStartOptions{}); err != nil {
 			log.WithError(err).Warn("Cannot start container")
 			continue
+		}
+
+		// auto delete old image
+		if expected.removeOld {
+			// quite hacky, is there a better way?
+			if strings.Contains(strings.ToLower(string(body)), cont.ImageID) {
+				log.Infof("It looks like the old image was pulled again. Skipped removing.")
+			} else {
+				log.Infof("Deleting image %s", cont.ImageID)
+				if err = deleteImage(cont.ImageID); err != nil {
+					log.WithError(err).Warn("Cannot remove old image")
+				}
+			}
 		}
 
 		log.Infof("Done! Container with image (%s) updated", cont.Image)
